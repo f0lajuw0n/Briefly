@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Clipboard,
   Copy,
+  Download,
   FileText,
   HelpCircle,
   Loader2,
@@ -18,16 +19,13 @@ import {
   Wand2,
 } from "lucide-react";
 import clsx from "clsx";
-import { analyzeFeedback } from "@/lib/analyze-feedback";
 import { formatChecklistForClipboard, formatResultForClipboard } from "@/lib/format";
-import { sampleRequest } from "@/lib/sample-data";
 import type { AnalysisResult, ChecklistItem, ProjectBrief } from "@/lib/types";
 
 type CopyKind = "all" | "checklist" | "reply" | "questions" | "scope";
 type WorkFilter = "all" | "high" | "clarify" | "scope" | "inScope";
-type ResultOrigin =
-  | { kind: "cohere"; model: string }
-  | { kind: "sample" };
+type ExportContent = "checklist" | "reply" | "both";
+type ExportFormat = "text" | "markdown";
 
 const emptyBrief: ProjectBrief = {
   projectName: "",
@@ -76,7 +74,6 @@ export function BrieflyWorkspace() {
   const [brief, setBrief] = useState<ProjectBrief>(emptyBrief);
   const [feedback, setFeedback] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [resultOrigin, setResultOrigin] = useState<ResultOrigin | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<CopyKind | null>(null);
@@ -85,8 +82,12 @@ export function BrieflyWorkspace() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   const [clientReplyDraft, setClientReplyDraft] = useState("");
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportContent, setExportContent] = useState<ExportContent>("both");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("text");
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const exportDialogRef = useRef<HTMLDivElement>(null);
 
   const canAnalyze = useMemo(
     () => Boolean(brief.projectName.trim() && brief.goal.trim() && feedback.trim()),
@@ -129,6 +130,23 @@ export function BrieflyWorkspace() {
     setClientReplyDraft(result.clientReply);
   }, [result]);
 
+  useEffect(() => {
+    if (!isExportOpen) {
+      return;
+    }
+
+    exportDialogRef.current?.focus();
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsExportOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isExportOpen]);
+
   async function analyze() {
     if (!canAnalyze || isLoading) {
       return;
@@ -139,7 +157,6 @@ export function BrieflyWorkspace() {
     setError("");
     setCopied(null);
     setResult(null);
-    setResultOrigin(null);
 
     try {
       const response = await fetch("/api/analyze", {
@@ -160,7 +177,6 @@ export function BrieflyWorkspace() {
 
       setClientReplyDraft(payload.analysis.clientReply);
       setResult(payload.analysis);
-      setResultOrigin({ kind: "cohere", model: payload.source.model });
       triggerHaptic([12, 40, 12]);
     } catch (analysisError) {
       triggerHaptic([15, 45, 15]);
@@ -172,18 +188,6 @@ export function BrieflyWorkspace() {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  function runSampleOutput() {
-    triggerHaptic(12);
-    const sampleResult = analyzeFeedback(sampleRequest);
-
-    setBrief(sampleRequest.brief);
-    setFeedback(sampleRequest.feedback);
-    setResult(sampleResult);
-    setResultOrigin({ kind: "sample" });
-    setError("");
-    setCopied(null);
   }
 
   async function copyText(kind: CopyKind, text: string) {
@@ -198,11 +202,32 @@ export function BrieflyWorkspace() {
     setBrief(emptyBrief);
     setFeedback("");
     setResult(null);
-    setResultOrigin(null);
     setError("");
     setClientReplyDraft("");
     setActiveFilter("all");
     setIsMoreContextOpen(false);
+  }
+
+  function exportOutput() {
+    if (!resultForCopy) {
+      return;
+    }
+
+    const content = formatExport(resultForCopy, exportContent, exportFormat);
+    const extension = exportFormat === "markdown" ? "md" : "txt";
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = exportFilename(brief.projectName, extension);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    triggerHaptic([10, 30, 10]);
+    setIsExportOpen(false);
   }
 
   function toggleTaskDone(id: string) {
@@ -356,13 +381,6 @@ export function BrieflyWorkspace() {
               </div>
               <h1>Workplan</h1>
               <p>{buildSummary(result, feedbackLines)}</p>
-              {resultOrigin?.kind === "cohere" ? (
-                <span className="analysis-source-label">
-                  Generated by Cohere · {resultOrigin.model}
-                </span>
-              ) : resultOrigin?.kind === "sample" ? (
-                <span className="analysis-source-label">Sample output (not generated by AI)</span>
-              ) : null}
             </div>
           </div>
 
@@ -425,46 +443,6 @@ export function BrieflyWorkspace() {
           )}
 
           <div className="run-composer">
-            <div className="composer-actions" aria-label="Output shortcuts">
-              <button
-                type="button"
-                onClick={runSampleOutput}
-                disabled={isLoading}
-                className="chip-button pressable"
-              >
-                Sample output (not generated by AI)
-              </button>
-              <button
-                type="button"
-                disabled={!result}
-                onClick={() => replyInputRef.current?.focus()}
-                className="chip-button pressable"
-              >
-                Draft client reply
-              </button>
-              <button
-                type="button"
-                disabled={!result}
-                onClick={() => {
-                  triggerHaptic(5);
-                  setActiveFilter("clarify");
-                }}
-                className="chip-button pressable"
-              >
-                Show clarifications
-              </button>
-              <button
-                type="button"
-                disabled={!result}
-                onClick={() => {
-                  triggerHaptic(5);
-                  setActiveFilter("inScope");
-                }}
-                className="chip-button pressable"
-              >
-                Hide out-of-scope
-              </button>
-            </div>
             <div className="composer-input-row">
               <label className="sr-only" htmlFor="feedback-input">
                 Feedback to analyze
@@ -567,7 +545,10 @@ export function BrieflyWorkspace() {
               </button>
               <button
                 type="button"
-                onClick={() => resultForCopy && copyText("all", formatResultForClipboard(resultForCopy))}
+                onClick={() => {
+                  triggerHaptic(8);
+                  setIsExportOpen(true);
+                }}
                 disabled={!resultForCopy}
                 className="output-button pressable"
               >
@@ -578,6 +559,103 @@ export function BrieflyWorkspace() {
           </section>
         </aside>
       </div>
+
+      {isExportOpen && resultForCopy ? (
+        <div className="export-backdrop" role="presentation">
+          <div
+            ref={exportDialogRef}
+            className="export-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+            tabIndex={-1}
+          >
+            <div className="export-dialog-header">
+              <div>
+                <p className="eyebrow">Export</p>
+                <h2 id="export-dialog-title">Choose what to export</h2>
+              </div>
+              <p>Download the current task list, client reply, or both.</p>
+            </div>
+
+            <fieldset className="export-option-group">
+              <legend>Content</legend>
+              <div className="export-options">
+                <label className="export-option">
+                  <input
+                    type="radio"
+                    name="export-content"
+                    value="checklist"
+                    checked={exportContent === "checklist"}
+                    onChange={() => setExportContent("checklist")}
+                  />
+                  <span>Task list</span>
+                </label>
+                <label className="export-option">
+                  <input
+                    type="radio"
+                    name="export-content"
+                    value="reply"
+                    checked={exportContent === "reply"}
+                    onChange={() => setExportContent("reply")}
+                  />
+                  <span>Client reply</span>
+                </label>
+                <label className="export-option">
+                  <input
+                    type="radio"
+                    name="export-content"
+                    value="both"
+                    checked={exportContent === "both"}
+                    onChange={() => setExportContent("both")}
+                  />
+                  <span>Both</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="export-option-group">
+              <legend>Format</legend>
+              <div className="export-options">
+                <label className="export-option">
+                  <input
+                    type="radio"
+                    name="export-format"
+                    value="text"
+                    checked={exportFormat === "text"}
+                    onChange={() => setExportFormat("text")}
+                  />
+                  <span>Plain text (.txt)</span>
+                </label>
+                <label className="export-option">
+                  <input
+                    type="radio"
+                    name="export-format"
+                    value="markdown"
+                    checked={exportFormat === "markdown"}
+                    onChange={() => setExportFormat("markdown")}
+                  />
+                  <span>Markdown (.md)</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div className="export-dialog-actions">
+              <button
+                type="button"
+                onClick={() => setIsExportOpen(false)}
+                className="secondary-button pressable"
+              >
+                Cancel
+              </button>
+              <button type="button" onClick={exportOutput} className="primary-button pressable">
+                <Download size={15} aria-hidden="true" />
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -847,7 +925,7 @@ function EmptyOutput() {
         <Wand2 size={20} aria-hidden="true" />
       </div>
       <h2>Ready when the notes are.</h2>
-      <p>Run the sample or paste a new round. Tasks, risks, questions, and copy-ready outputs will appear here.</p>
+      <p>Paste a new round. Tasks, risks, questions, and copy-ready outputs will appear here.</p>
     </div>
   );
 }
@@ -962,6 +1040,74 @@ function formatScopeNote(checklist: ChecklistItem[]) {
   return scopedItems
     .map((item) => `${item.taskTitle}\n${item.rationale}\nNext: ${item.nextAction}`)
     .join("\n\n");
+}
+
+function formatExport(
+  result: AnalysisResult,
+  content: ExportContent,
+  format: ExportFormat,
+) {
+  if (format === "markdown") {
+    return formatMarkdownExport(result, content);
+  }
+
+  const sections: string[] = [];
+
+  if (content === "checklist" || content === "both") {
+    sections.push("TASK LIST\n\n" + formatChecklistForClipboard(result.checklist));
+  }
+
+  if (content === "reply" || content === "both") {
+    sections.push("CLIENT REPLY\n\n" + result.clientReply);
+  }
+
+  return sections.join("\n\n");
+}
+
+function formatMarkdownExport(result: AnalysisResult, content: ExportContent) {
+  const sections: string[] = ["# Briefly export"];
+
+  if (content === "checklist" || content === "both") {
+    const taskList = result.checklist
+      .map(
+        (item, index) =>
+          "### " +
+          (index + 1) +
+          ". " +
+          item.taskTitle +
+          "\n- **Priority:** " +
+          item.priority +
+          "\n- **Action:** " +
+          item.suggestedAction +
+          "\n- **Rationale:** " +
+          item.rationale +
+          "\n- **Related feedback:** " +
+          item.relatedFeedback +
+          "\n- **Brief alignment:** " +
+          item.briefAlignment +
+          "\n- **Next action:** " +
+          item.nextAction,
+      )
+      .join("\n\n");
+
+    sections.push("## Task list\n\n" + taskList);
+  }
+
+  if (content === "reply" || content === "both") {
+    sections.push("## Client reply\n\n" + result.clientReply);
+  }
+
+  return sections.join("\n\n");
+}
+
+function exportFilename(projectName: string, extension: "txt" | "md") {
+  const name = projectName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return (name || "briefly-workplan") + "-export." + extension;
 }
 
 function progressPercent(done: number, total: number) {
