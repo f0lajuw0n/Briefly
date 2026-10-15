@@ -107,9 +107,11 @@ The reply should be professional, concise, editable, and easy to copy. It should
 - Internal route handler at `app/api/analyze/route.ts`.
 - Current local rule-based analyzer in `lib/analyze-feedback.ts`.
 
-Planned but not wired:
+Configured for analysis:
 
-- OpenAI API for AI-backed analysis.
+- Cohere Chat API V2 for AI-backed analysis.
+
+Planned but not wired:
 - Supabase for auth, projects, and saved analyses.
 - Vercel for deployment.
 
@@ -150,7 +152,7 @@ Use `npm run build` before handing off code changes. The build script uses `next
 - Keep the analyzer route internal; V1 does not expose a public API.
 - Preserve the local rule-based analyzer until an AI-backed adapter is intentionally introduced.
 - When sending analysis requests, omit empty optional brief fields rather than sending blank strings.
-- If an AI-backed analyzer is added, return the same `AnalysisResult` shape unless the UI and formatter are updated in the same change.
+- The Cohere-backed analyzer must return the same `AnalysisResult` shape unless the UI and formatter are updated in the same change.
 
 ## UI And Design Guidelines
 

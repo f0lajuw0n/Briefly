@@ -214,7 +214,7 @@ The following are not part of V1:
 ### Backend
 
 - **Next.js Server Actions or Route Handlers:** Handle feedback analysis requests without introducing a separate backend service.
-- **OpenAI API:** Generate brief-aware analysis, structured checklist items, clarification questions, and client replies.
+- **Cohere API:** Generate brief-aware analysis, structured checklist items, clarification questions, and client replies.
 
 ### Database and Auth
 
@@ -285,7 +285,7 @@ V1 is done when a designer can:
 
 - The MVP is a web app, not a plugin or client portal.
 - The primary output is a prioritized checklist plus a client-ready response.
-- The product starts as a fast SaaS MVP using Next.js, Supabase, Vercel, TypeScript, Tailwind CSS, and the OpenAI API.
+- The product starts as a fast SaaS MVP using Next.js, Supabase, Vercel, TypeScript, Tailwind CSS, and the Cohere API.
 - Users will manually paste brief and feedback content in V1.
 - Generated output should assist the designer, not replace their professional judgment.
 - Designers should review all AI-generated recommendations before sending anything to clients.

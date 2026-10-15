@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { analyzeFeedbackWithAI } from "@/lib/analyze-feedback-ai";
+import {
+  CohereAnalysisError,
+  analyzeFeedbackWithCohere,
+} from "@/lib/analyze-feedback-ai";
 import type { AnalysisRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,16 +22,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const analysis = await analyzeFeedbackWithAI(payload as AnalysisRequest);
+    const analysis = await analyzeFeedbackWithCohere(payload as AnalysisRequest);
 
-    return NextResponse.json(analysis.result, {
-      headers: {
-        "X-Briefly-Analysis-Source": analysis.source,
-      },
-    });
-  } catch {
     return NextResponse.json(
-      { error: "Briefly could not analyze this feedback yet." },
+      { analysis: analysis.result, source: analysis.source },
+      {
+        headers: {
+          "X-Briefly-Analysis-Source": analysis.source.provider,
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof CohereAnalysisError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    return NextResponse.json(
+      { error: "Briefly could not analyze this feedback yet. Please try again." },
       { status: 500 },
     );
   }

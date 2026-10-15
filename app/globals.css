@@ -479,6 +479,19 @@ input:focus-visible {
   line-height: 1.55;
 }
 
+.analysis-source-label {
+  display: inline-flex;
+  margin-top: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-field);
+  padding: 4px 9px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
 .filter-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -522,6 +535,22 @@ input:focus-visible {
 
 .error-callout p {
   margin: 0;
+}
+
+.error-retry-button {
+  min-height: 30px;
+  margin-top: 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0 10px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.error-retry-button:disabled {
+  opacity: 0.5;
 }
 
 .task-list {

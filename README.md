@@ -7,9 +7,9 @@ Briefly turns vague, scattered client feedback into a prioritized, brief-aware c
 - Next.js App Router with TypeScript.
 - Tailwind CSS styling.
 - Single workspace screen for project context, pasted feedback, generated checklist, and editable client reply.
-- Internal `/api/analyze` route with OpenAI-backed analysis and a local rule-based fallback.
+- Internal `/api/analyze` route with Cohere-backed analysis and clear provider errors.
 - Typed analysis contracts in `lib/types.ts`.
-- `.env.example` configuration for OpenAI and planned Supabase integrations.
+- `.env.example` configuration for Cohere and planned Supabase integrations.
 
 ## Run Locally
 
@@ -22,14 +22,16 @@ Then open `http://localhost:3000`.
 
 ## Enable AI Analysis
 
-Copy `.env.example` to `.env.local` and set a server-side `OPENAI_API_KEY`. The
-analysis route uses OpenAI's Responses API with a strict JSON schema, so the UI
-continues to receive the existing `AnalysisResult` shape. It defaults to
-`gpt-6-luna`; set `OPENAI_MODEL` to override it.
+Copy `.env.example` to `.env.local` and set a server-side `COHERE_API_KEY`. The
+analysis route uses Cohere's Chat API V2 with a JSON schema, so the UI continues
+to receive the existing `AnalysisResult` shape. It defaults to
+`command-a-plus-05-2026`; set `COHERE_MODEL` to override it.
 
 If no key is configured, or an AI response fails validation, Briefly keeps the
-workspace usable with the local rule-based analyzer. The response header
-`X-Briefly-Analysis-Source` is `ai` or `rule-based-fallback` for diagnostics.
+brief and feedback in place and shows a retryable error. The local analyzer is
+available only through the clearly labelled sample-output control. The response
+JSON includes the Cohere provider and model; the `X-Briefly-Analysis-Source`
+header remains available for diagnostics.
 
 ## Next Implementation Steps
 

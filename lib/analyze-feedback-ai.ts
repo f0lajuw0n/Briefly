@@ -1,4 +1,3 @@
-import { analyzeFeedback } from "@/lib/analyze-feedback";
 import type {
   AnalysisRequest,
   AnalysisResult,
@@ -8,9 +7,10 @@ import type {
   Priority,
 } from "@/lib/types";
 
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-6-luna";
+const COHERE_CHAT_URL = "https://api.cohere.com/v2/chat";
+const DEFAULT_MODEL = "command-a-plus-05-2026";
 const REQUEST_TIMEOUT_MS = 30_000;
+export const ANALYSIS_MAX_TOKENS = 12_000;
 
 const priorities = ["high", "medium", "low", "needs clarification"] as const;
 const categories = [
@@ -75,93 +75,177 @@ Write a professional, concise client reply grounded in the actual checklist. It 
 
 type JsonObject = Record<string, unknown>;
 
-type ResponsesPayload = {
-  output_text?: unknown;
-  error?: { message?: unknown };
+type CohereChatPayload = {
+  message?:
+    | {
+        content?: Array<{
+          type?: unknown;
+          text?: unknown;
+        }>;
+      }
+    | string;
 };
 
-export type AnalysisSource = "ai" | "rule-based-fallback";
+export type CohereAnalysisSource = {
+  provider: "cohere";
+  model: string;
+};
 
 export type AnalysisResponse = {
   result: AnalysisResult;
-  source: AnalysisSource;
+  source: CohereAnalysisSource;
 };
 
-export async function analyzeFeedbackWithAI(
+export class CohereAnalysisError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "CohereAnalysisError";
+  }
+}
+
+export type CohereAnalyzerOptions = {
+  apiKey?: string;
+  model?: string;
+  fetchImplementation?: typeof fetch;
+};
+
+export async function analyzeFeedbackWithCohere(
   request: AnalysisRequest,
+  options: CohereAnalyzerOptions = {},
 ): Promise<AnalysisResponse> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = options.apiKey ?? process.env.COHERE_API_KEY?.trim();
+  const model = options.model ?? process.env.COHERE_MODEL?.trim() ?? DEFAULT_MODEL;
 
   if (!apiKey) {
-    return fallback(request);
+    throw new CohereAnalysisError(
+      "Cohere analysis is not configured. Add COHERE_API_KEY and try again.",
+      503,
+    );
   }
 
   try {
-    const response = await fetch(OPENAI_RESPONSES_URL, {
+    const response = await (options.fetchImplementation ?? fetch)(COHERE_CHAT_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
         "Content-Type": "application/json",
+        "X-Client-Name": "briefly",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL,
-        instructions,
-        input: JSON.stringify({
-          projectBrief: request.brief,
-          rawClientFeedback: request.feedback,
-        }),
-        max_output_tokens: 4_000,
-        store: false,
-        text: {
-          format: {
-            type: "json_schema",
-            name: "briefly_feedback_analysis",
-            strict: true,
-            schema: analysisSchema,
+        model,
+        stream: false,
+        temperature: 0,
+        max_tokens: ANALYSIS_MAX_TOKENS,
+        thinking: { type: "disabled" },
+        messages: [
+          { role: "system", content: instructions },
+          {
+            role: "user",
+            content: `Generate only the requested JSON object from this data:\n${JSON.stringify({
+              projectBrief: request.brief,
+              rawClientFeedback: request.feedback,
+            })}`,
           },
+        ],
+        response_format: {
+          type: "json_object",
+          schema: analysisSchema,
         },
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
-    const payload = (await response.json()) as ResponsesPayload;
+    const payload = (await response.json()) as CohereChatPayload;
 
     if (!response.ok) {
-      throw new Error(readOpenAIError(payload) ?? `OpenAI returned ${response.status}.`);
+      throw new CohereAnalysisError(
+        "Cohere could not complete this analysis. Please try again.",
+        502,
+      );
     }
 
-    if (typeof payload.output_text !== "string") {
-      throw new Error("OpenAI returned no structured analysis output.");
+    const outputText = extractCohereText(payload);
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(outputText);
+    } catch {
+      throw new CohereAnalysisError(
+        "Cohere returned an incomplete analysis. Please try again.",
+        502,
+      );
     }
 
-    return {
-      result: toAnalysisResult(JSON.parse(payload.output_text), request.feedback),
-      source: "ai",
-    };
+    try {
+      return {
+        result: toAnalysisResult(parsed, request.feedback),
+        source: { provider: "cohere", model },
+      };
+    } catch {
+      throw new CohereAnalysisError(
+        "Cohere returned an unusable analysis. Please try again.",
+        502,
+      );
+    }
   } catch (error) {
-    console.error("[briefly] AI analysis failed; using the local fallback.", error);
-    return fallback(request);
+    if (error instanceof CohereAnalysisError) {
+      throw error;
+    }
+
+    const isTimeout = error instanceof Error && error.name === "TimeoutError";
+    console.error("[briefly] Cohere analysis failed.", error);
+    throw new CohereAnalysisError(
+      isTimeout
+        ? "Cohere analysis timed out. Please try again."
+        : "Cohere could not complete this analysis. Please try again.",
+      isTimeout ? 504 : 502,
+    );
   }
 }
 
-function fallback(request: AnalysisRequest): AnalysisResponse {
-  return { result: analyzeFeedback(request), source: "rule-based-fallback" };
+function extractCohereText(payload: CohereChatPayload): string {
+  if (typeof payload.message !== "object" || payload.message === null) {
+    throw new CohereAnalysisError(
+      "Cohere returned no analysis content. Please try again.",
+      502,
+    );
+  }
+
+  const outputText = payload.message.content
+    ?.flatMap((content) =>
+      content.type === "text" && typeof content.text === "string" ? [content.text.trim()] : [],
+    )
+    .filter(Boolean)
+    .join("\n");
+
+  if (!outputText) {
+    throw new CohereAnalysisError(
+      "Cohere returned no analysis content. Please try again.",
+      502,
+    );
+  }
+
+  return outputText;
 }
 
 function toAnalysisResult(value: unknown, feedback: string): AnalysisResult {
   if (!isObject(value) || !Array.isArray(value.checklist) || typeof value.clientReply !== "string") {
-    throw new Error("OpenAI returned an invalid analysis shape.");
+    throw new Error("Cohere returned an invalid analysis shape.");
   }
 
   const clientReply = value.clientReply.trim();
   if (clientReply.length < 10 || clientReply.length > 4_000) {
-    throw new Error("OpenAI returned an invalid client reply.");
+    throw new Error("Cohere returned an invalid client reply.");
   }
 
   const checklist = value.checklist.map((item, index) => toChecklistItem(item, index, feedback));
 
-  if (checklist.length === 0 || checklist.length > 12) {
-    throw new Error("OpenAI returned an invalid checklist length.");
+  if (checklist.length === 0 || checklist.length > 15) {
+    throw new Error("Cohere returned an invalid checklist length.");
   }
 
   return {
@@ -182,7 +266,7 @@ function toAnalysisResult(value: unknown, feedback: string): AnalysisResult {
 
 function toChecklistItem(value: unknown, index: number, feedback: string): ChecklistItem {
   if (!isObject(value)) {
-    throw new Error("OpenAI returned an invalid checklist item.");
+    throw new Error("Cohere returned an invalid checklist item.");
   }
 
   const priority = enumValue(value.priority, priorities);
@@ -196,7 +280,7 @@ function toChecklistItem(value: unknown, index: number, feedback: string): Check
 
   const normalisedQuote = normaliseForMatching(relatedFeedback);
   if (!normalisedQuote || !normaliseForMatching(feedback).includes(normalisedQuote)) {
-    throw new Error("OpenAI returned feedback that cannot be traced to the source.");
+    throw new Error("Cohere returned feedback that cannot be traced to the source.");
   }
 
   return {
@@ -212,26 +296,22 @@ function toChecklistItem(value: unknown, index: number, feedback: string): Check
   };
 }
 
-function readOpenAIError(payload: ResponsesPayload): string | undefined {
-  return typeof payload.error?.message === "string" ? payload.error.message : undefined;
-}
-
 function enumValue<T extends string>(value: unknown, values: readonly T[]): T {
   if (typeof value === "string" && (values as readonly string[]).includes(value)) {
     return value as T;
   }
 
-  throw new Error("OpenAI returned an unsupported analysis value.");
+  throw new Error("Cohere returned an unsupported analysis value.");
 }
 
 function textValue(value: unknown, name: string, maxLength: number): string {
   if (typeof value !== "string") {
-    throw new Error(`OpenAI returned an invalid ${name}.`);
+    throw new Error(`Cohere returned an invalid ${name}.`);
   }
 
   const text = value.trim();
   if (!text || text.length > maxLength) {
-    throw new Error(`OpenAI returned an invalid ${name}.`);
+    throw new Error(`Cohere returned an invalid ${name}.`);
   }
 
   return text;
