@@ -11,6 +11,7 @@ import {
   Copy,
   Download,
   FileText,
+  FolderOpen,
   HelpCircle,
   Loader2,
   MessageSquareText,
@@ -26,6 +27,14 @@ type CopyKind = "all" | "checklist" | "reply" | "questions" | "scope";
 type WorkFilter = "all" | "high" | "clarify" | "scope" | "inScope";
 type ExportContent = "checklist" | "reply" | "both";
 type ExportFormat = "text" | "markdown";
+type ProjectSession = {
+  id: string;
+  brief: ProjectBrief;
+  feedback: string;
+  result: AnalysisResult | null;
+  reply: string;
+  completed: string[];
+};
 
 const emptyBrief: ProjectBrief = {
   projectName: "",
@@ -48,14 +57,14 @@ const briefFields: Array<{
     key: "goal",
     label: "Goal",
     placeholder: "Increase consultation bookings",
-    minRows: 2,
+    minRows: 1,
     required: true,
   },
   {
     key: "constraints",
     label: "Constraints",
     placeholder: "Keep approved sections, use current brand palette, due Friday",
-    minRows: 3,
+    minRows: 1,
   },
 ];
 
@@ -78,6 +87,7 @@ export function BrieflyWorkspace() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<CopyKind | null>(null);
   const [isMoreContextOpen, setIsMoreContextOpen] = useState(false);
+  const [isEditingBrief, setIsEditingBrief] = useState(false);
   const [activeFilter, setActiveFilter] = useState<WorkFilter>("all");
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
@@ -85,6 +95,11 @@ export function BrieflyWorkspace() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportContent, setExportContent] = useState<ExportContent>("both");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("text");
+  const [projects, setProjects] = useState<ProjectSession[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [showProjects, setShowProjects] = useState(false);
+  const [editingProject, setEditingProject] = useState<string | "new" | null>(null);
+  const [projectDraft, setProjectDraft] = useState<ProjectBrief>(emptyBrief);
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const exportDialogRef = useRef<HTMLDivElement>(null);
@@ -119,40 +134,43 @@ export function BrieflyWorkspace() {
   const doneCount = completedTaskIds.size;
 
   useEffect(() => {
-    if (!result?.checklist.length) {
-      setOpenTaskId(null);
-      setCompletedTaskIds(new Set());
-      return;
-    }
-
-    setOpenTaskId(result.checklist[0].id);
-    setCompletedTaskIds(new Set());
-    setClientReplyDraft(result.clientReply);
-  }, [result]);
-
-  useEffect(() => {
     if (!isExportOpen) {
       return;
     }
 
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     exportDialogRef.current?.focus();
 
-    const closeOnEscape = (event: KeyboardEvent) => {
+    const handleDialogKeys = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setIsExportOpen(false);
+      } else if (event.key === "Tab" && exportDialogRef.current) {
+        const controls = Array.from(
+          exportDialogRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)"),
+        );
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === exportDialogRef.current)) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
       }
     };
 
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
+    document.addEventListener("keydown", handleDialogKeys);
+    return () => {
+      document.removeEventListener("keydown", handleDialogKeys);
+      previousFocus?.focus();
+    };
   }, [isExportOpen]);
 
   async function analyze() {
     if (!canAnalyze || isLoading) {
       return;
     }
-
-    triggerHaptic(12);
     setIsLoading(true);
     setError("");
     setCopied(null);
@@ -177,9 +195,10 @@ export function BrieflyWorkspace() {
 
       setClientReplyDraft(payload.analysis.clientReply);
       setResult(payload.analysis);
-      triggerHaptic([12, 40, 12]);
+      setOpenTaskId(payload.analysis.checklist[0]?.id ?? null);
+      setCompletedTaskIds(new Set());
+      setIsEditingBrief(false);
     } catch (analysisError) {
-      triggerHaptic([15, 45, 15]);
       setError(
         analysisError instanceof Error
           ? analysisError.message
@@ -192,13 +211,16 @@ export function BrieflyWorkspace() {
 
   async function copyText(kind: CopyKind, text: string) {
     await navigator.clipboard.writeText(text);
-    triggerHaptic(10);
     setCopied(kind);
     window.setTimeout(() => setCopied(null), 1500);
   }
 
   function startNewRound() {
-    triggerHaptic(8);
+    if (projectId && !showProjects) {
+      setProjects((current) => current.map((project) => project.id === projectId ? { ...project, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] } : project));
+    }
+    setProjectId(null);
+    setShowProjects(false);
     setBrief(emptyBrief);
     setFeedback("");
     setResult(null);
@@ -206,6 +228,50 @@ export function BrieflyWorkspace() {
     setClientReplyDraft("");
     setActiveFilter("all");
     setIsMoreContextOpen(false);
+    setIsEditingBrief(false);
+  }
+
+  function openProjects() {
+    if (isLoading) return;
+    if (projectId) {
+      setProjects((current) => current.map((project) => project.id === projectId
+        ? { ...project, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] }
+        : project));
+    } else if (brief.projectName.trim() || brief.goal.trim() || feedback.trim() || result) {
+      const id = crypto.randomUUID();
+      setProjectId(id);
+      setProjects((current) => [...current, { id, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] }]);
+    }
+    setEditingProject(null);
+    setShowProjects(true);
+  }
+
+  function selectProject(project: ProjectSession) {
+    setProjectId(project.id);
+    setBrief(project.brief);
+    setFeedback(project.feedback);
+    setResult(project.result);
+    setClientReplyDraft(project.reply);
+    setCompletedTaskIds(new Set(project.completed));
+    setOpenTaskId(null);
+    setActiveFilter("all");
+    setError("");
+    setIsEditingBrief(false);
+    setIsMoreContextOpen(optionalBriefFields.some((field) => Boolean(project.brief[field.key]?.trim())));
+    setShowProjects(false);
+  }
+
+  function saveProject() {
+    if (!projectDraft.projectName.trim() || !projectDraft.goal.trim()) return;
+    if (editingProject === "new") {
+      const project = { id: crypto.randomUUID(), brief: projectDraft, feedback: "", result: null, reply: "", completed: [] };
+      setProjects((current) => [...current, project]);
+      selectProject(project);
+    } else if (editingProject) {
+      setProjects((current) => current.map((project) => project.id === editingProject ? { ...project, brief: projectDraft } : project));
+      if (projectId === editingProject) setBrief(projectDraft);
+      setEditingProject(null);
+    }
   }
 
   function exportOutput() {
@@ -225,13 +291,10 @@ export function BrieflyWorkspace() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-
-    triggerHaptic([10, 30, 10]);
     setIsExportOpen(false);
   }
 
   function toggleTaskDone(id: string) {
-    triggerHaptic(6);
     setCompletedTaskIds((current) => {
       const next = new Set(current);
       if (next.has(id)) {
@@ -250,318 +313,185 @@ export function BrieflyWorkspace() {
       </a>
       <Toast copied={copied} />
 
-      <header className="briefly-topbar">
-        <div className="brand-cluster">
-          <div className="briefly-mark" aria-hidden="true">
-            B
-          </div>
-          <div className="brand-copy">
-            <p>Briefly</p>
-            <span>{brief.projectName.trim() || "Untitled project"} / {filledCount} of 6 filled</span>
-          </div>
+      <aside className="workspace-sidebar" aria-label="Workspace">
+        <div className="sidebar-brand">
+          <div className="briefly-mark" aria-hidden="true">B</div>
+          <span>Briefly</span>
         </div>
-
-        <div className="topbar-actions">
-          <button
-            type="button"
-            onClick={() => resultForCopy && copyText("all", formatResultForClipboard(resultForCopy))}
-            disabled={!resultForCopy}
-            className="secondary-button pressable"
-          >
-            {copied === "all" ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
-            Copy all
-          </button>
-          <button type="button" onClick={startNewRound} className="primary-button pressable">
-            <Plus size={15} aria-hidden="true" />
-            New round
-          </button>
+        <button type="button" onClick={startNewRound} disabled={isLoading} className="primary-button sidebar-new pressable">
+          <Plus size={16} aria-hidden="true" />
+          New round
+        </button>
+        <div className="sidebar-section-label">Workspace</div>
+        <button type="button" onClick={openProjects} disabled={isLoading} className="projects-nav pressable" aria-current={showProjects ? "page" : undefined}><FolderOpen size={15} aria-hidden="true" /> Projects</button>
+        <div className="sidebar-project">
+          <div className="sidebar-project-icon"><Clipboard size={15} aria-hidden="true" /></div>
+          <span>{brief.projectName.trim() || "Untitled project"}</span>
+          <small>{result ? "Current" : "Draft"}</small>
         </div>
-      </header>
+        <div className="sidebar-footer">
+          <div className="sidebar-avatar" aria-hidden="true">B</div>
+          <div><strong>Your workspace</strong><span>Feedback, made clear.</span></div>
+        </div>
+      </aside>
 
-      <div className="app-board">
-        <aside
-          className="side-panel panel-enter"
-          style={{ "--enter-delay": "0ms" } as React.CSSProperties}
-        >
-          <section className="panel-section">
-            <div className="section-heading">
-              <div>
-                <h2>Brief</h2>
-                <p>Brief-aware context</p>
-              </div>
+      <div className="workspace-content">
+        {showProjects ? (
+          <main id="workspace" className="projects-screen">
+            <div className="projects-header">
+              <div><h1>Projects</h1><p>Keep your briefs and feedback together while you work.</p></div>
+              <button type="button" className="primary-button pressable" onClick={() => { setProjectDraft(emptyBrief); setEditingProject("new"); }}><Plus size={16} aria-hidden="true" /> New project</button>
             </div>
-
-            <div className="brief-stack">
-              {briefFields.map((field) => (
-                <BriefField
-                  key={field.key}
-                  field={field}
-                  brief={brief}
-                  onChange={(value) =>
-                    setBrief((current) => ({ ...current, [field.key]: value }))
-                  }
-                />
-              ))}
-            </div>
-
-            <div className="optional-context">
-              <button
-                type="button"
-                className="optional-context-trigger pressable"
-                aria-expanded={isMoreContextOpen}
-                onClick={() => {
-                  triggerHaptic(8);
-                  setIsMoreContextOpen((current) => !current);
-                }}
-              >
-                <span>More context (optional)</span>
-                <strong>{optionalCount} fields</strong>
-                <ChevronDown
-                  className={clsx("optional-context-icon", isMoreContextOpen && "rotate-180")}
-                  size={16}
-                  aria-hidden="true"
-                />
+            <p className="projects-storage-note">Projects stay in this browser session and are cleared when you reload or close the page.</p>
+            {editingProject ? (
+              <form className="project-editor" onSubmit={(event) => { event.preventDefault(); saveProject(); }}>
+                <div><h2>{editingProject === "new" ? "New project" : "Edit project"}</h2><p>Give your project the context Briefly needs.</p></div>
+                <div className="entry-form-grid">{briefFields.slice(0, 2).map((field) => <BriefField key={field.key} field={field} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, [field.key]: value }))} />)}</div>
+                <BriefField field={briefFields[2]} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, constraints: value }))} />
+                <div className="entry-form-grid">{optionalBriefFields.map((field) => <BriefField key={field.key} field={field} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, [field.key]: value }))} />)}</div>
+                <div className="project-editor-actions"><button type="button" className="secondary-button pressable" onClick={() => setEditingProject(null)}>Cancel</button><button type="submit" className="primary-button pressable" disabled={!projectDraft.projectName.trim() || !projectDraft.goal.trim()}>{editingProject === "new" ? "Create project" : "Save changes"}</button></div>
+              </form>
+            ) : null}
+            {projects.length ? <div className="project-list" aria-label="Your projects">{projects.map((project) => <article className="project-item" key={project.id}>
+              <div className="project-item-icon"><FolderOpen size={18} aria-hidden="true" /></div>
+              <div className="project-item-content"><h2>{project.brief.projectName || "Untitled project"}</h2><p>{project.brief.goal || "No goal added yet"}</p><span>{project.result ? "Workplan ready" : "Draft"}{project.id === projectId ? " · Current project" : ""}</span></div>
+              <div className="project-item-actions"><button type="button" className="secondary-button pressable" onClick={() => { setProjectDraft({ ...project.brief }); setEditingProject(project.id); }}>Edit<span className="sr-only"> {project.brief.projectName}</span></button><button type="button" className="primary-button pressable" onClick={() => selectProject(project)}>Open<span className="sr-only"> {project.brief.projectName}</span></button></div>
+            </article>)}</div> : !editingProject ? <div className="projects-empty"><FolderOpen size={22} aria-hidden="true" /><h2>No projects yet</h2><p>Create a project to keep its brief and feedback together.</p><button type="button" className="secondary-button pressable" onClick={() => { setProjectDraft(emptyBrief); setEditingProject("new"); }}><Plus size={16} aria-hidden="true" /> Create a project</button></div> : null}
+            <button type="button" className="text-button projects-back" onClick={() => setShowProjects(false)}>Back to workspace</button>
+          </main>
+        ) : <>
+        {result && !isEditingBrief ? (
+          <header className="workspace-topbar">
+            <div className="breadcrumb"><span>{brief.projectName || "Untitled project"}</span><span aria-hidden="true">/</span><strong>Workplan</strong></div>
+            <div className="topbar-actions">
+              <button type="button" onClick={() => resultForCopy && copyText("all", formatResultForClipboard(resultForCopy))} className="secondary-button pressable">
+                {copied === "all" ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />} Copy all
               </button>
+              <button type="button" onClick={() => setIsExportOpen(true)} className="secondary-button pressable">
+                <Download size={15} aria-hidden="true" /> Export
+              </button>
+            </div>
+          </header>
+        ) : null}
 
-              <div
-                aria-hidden={!isMoreContextOpen}
-                inert={!isMoreContextOpen}
-                className={clsx(
-                  "optional-context-body",
-                  isMoreContextOpen && "optional-context-body--open",
-                )}
-              >
-                <div className="overflow-hidden">
-                  <div className="brief-stack pt-3">
+        {!result || isEditingBrief ? (
+          <main id="workspace" className="entry-screen">
+            <div className="entry-heading">
+              <div className="entry-eyebrow"><Sparkles size={15} aria-hidden="true" /> YOUR WORKSPACE</div>
+              <h1>{isEditingBrief ? "Edit your project brief" : "What did the client say?"}</h1>
+              <p>Paste the messy version. Briefly turns it into prioritized tasks, questions for the client, and scope notes.</p>
+            </div>
+
+            <div className="entry-card">
+              <div className="entry-form-grid">
+                {briefFields.slice(0, 2).map((field) => (
+                  <BriefField key={field.key} field={field} brief={brief} onChange={(value) => setBrief((current) => ({ ...current, [field.key]: value }))} />
+                ))}
+              </div>
+              <div className="entry-constraints">
+                <BriefField field={briefFields[2]} brief={brief} onChange={(value) => setBrief((current) => ({ ...current, constraints: value }))} />
+              </div>
+              <div className="optional-context">
+                <button type="button" className="optional-context-trigger pressable" aria-expanded={isMoreContextOpen} onClick={() => setIsMoreContextOpen((current) => !current)}>
+                  <Plus size={14} aria-hidden="true" /><span>More context</span><strong>{optionalCount ? optionalCount + " filled" : "Optional"}</strong>
+                  <ChevronDown className={clsx("optional-context-icon", isMoreContextOpen && "rotate-180")} size={15} aria-hidden="true" />
+                </button>
+                <div aria-hidden={!isMoreContextOpen} inert={!isMoreContextOpen} className={clsx("optional-context-body", isMoreContextOpen && "optional-context-body--open")}>
+                  <div className="overflow-hidden"><div className="entry-form-grid optional-fields">
                     {optionalBriefFields.map((field) => (
-                      <BriefField
-                        key={field.key}
-                        field={field}
-                        brief={brief}
-                        onChange={(value) =>
-                          setBrief((current) => ({ ...current, [field.key]: value }))
-                        }
-                      />
+                      <BriefField key={field.key} field={field} brief={brief} onChange={(value) => setBrief((current) => ({ ...current, [field.key]: value }))} />
                     ))}
+                  </div></div>
+                </div>
+              </div>
+              <div className="entry-feedback">
+                <label className="sr-only" htmlFor="feedback-input">Client feedback</label>
+                <AutoGrowTextarea id="feedback-input" value={feedback} onChange={setFeedback} placeholder="Paste client feedback here. Emails, chat threads, and call notes all work." minRows={7} className="entry-feedback-input" textareaRef={feedbackInputRef} />
+                <div className="entry-feedback-footer">
+                  <span>{feedback.length.toLocaleString()} characters</span>
+                  <div className="entry-actions">
+                    {isEditingBrief ? <button type="button" onClick={() => setIsEditingBrief(false)} className="secondary-button pressable">Back to workplan</button> : null}
+                    <button type="button" onClick={analyze} disabled={!canAnalyze || isLoading} className="primary-button pressable">
+                      {isLoading ? <Loader2 className="animate-spin" size={16} aria-hidden="true" /> : <ArrowUp size={16} aria-hidden="true" />}
+                      {isLoading ? "Analyzing..." : "Analyze feedback"}
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
-          </section>
-
-          <section className="panel-section panel-section--divided">
-            <div className="section-heading">
-              <div>
-                <h2>Feedback</h2>
-                <p>{feedbackLines} comments - today</p>
-              </div>
+            {error ? (
+              <div className="error-callout" role="alert"><AlertTriangle size={17} aria-hidden="true" /><div><p>{error}</p><button type="button" onClick={analyze} disabled={!canAnalyze || isLoading} className="error-retry-button pressable">Retry</button></div></div>
+            ) : null}
+            {isLoading ? <LoadingOutput /> : null}
+            <div className="entry-features" aria-label="What Briefly creates">
+              <div className="feature-card"><span className="feature-tag feature-tag--tasks">TASKS</span><h2>Prioritized tasks</h2><p>Each one linked to the client’s feedback.</p></div>
+              <div className="feature-card"><span className="feature-tag feature-tag--questions">ASK</span><h2>Questions for the client</h2><p>Open points, ready to discuss.</p></div>
+              <div className="feature-card"><span className="feature-tag feature-tag--scope">SCOPE</span><h2>Scope notes</h2><p>Requests to check against your brief.</p></div>
             </div>
-            <button
-              type="button"
-              onClick={() => feedbackInputRef.current?.focus()}
-              className="full-button pressable"
-            >
-              <Plus size={15} aria-hidden="true" />
-              Add feedback
-            </button>
-            <p className="feedback-hint">Everything pasted below stays in this round until you start a new one.</p>
-          </section>
-        </aside>
-
-        <main
-          id="workspace"
-          className="work-panel panel-enter"
-          style={{ "--enter-delay": "55ms" } as React.CSSProperties}
-        >
-          <div className="work-header">
-            <div>
-              <div className="eyebrow">
-                <Sparkles size={14} aria-hidden="true" />
-                Workplan
+          </main>
+        ) : (
+          <div className="results-layout">
+            <main id="workspace" className="results-main">
+              <section className="summary-card">
+                <div className="summary-heading"><span><Sparkles size={15} aria-hidden="true" /> The short version</span><span>WORKPLAN</span></div>
+                <h1>{buildSummary(result, feedbackLines)}</h1>
+                <div className="summary-stats">
+                  <div><span>Start with</span><strong>{result.summary.highPriority} high priority</strong></div>
+                  <div><span>Ask first</span><strong>{result.summary.needsClarification} need clarification</strong></div>
+                  <div><span>Scope</span><strong>{result.summary.scopeFlags} flagged</strong></div>
+                </div>
+              </section>
+              <div className="workplan-controls">
+                <FilterTabs activeFilter={activeFilter} result={result} onChange={setActiveFilter} />
+                <div className="inline-progress"><span>{doneCount} of {checklist.length} done</span><div className="progress-track" aria-hidden="true"><span style={{ width: progressPercent(doneCount, checklist.length) + "%" }} /></div></div>
               </div>
-              <h1>Workplan</h1>
-              <p>{buildSummary(result, feedbackLines)}</p>
-            </div>
+              {checklist.length ? (
+                <div className="task-list">
+                  <div className="task-list-heading"><span>YOUR TASKS</span><span>{filteredChecklist.length} shown</span></div>
+                  {filteredChecklist.map((item, index) => (
+                    <TaskCard key={item.id} item={item} index={index} expanded={openTaskId === item.id} completed={completedTaskIds.has(item.id)} onToggleDone={() => toggleTaskDone(item.id)} onOpen={() => setOpenTaskId((current) => current === item.id ? null : item.id)} />
+                  ))}
+                  {!filteredChecklist.length ? <p className="filter-empty">No tasks in this view.</p> : null}
+                </div>
+              ) : <EmptyOutput />}
+              <ReplyDraft value={clientReplyDraft} onChange={setClientReplyDraft} onCopy={() => copyText("reply", clientReplyDraft)} copied={copied === "reply"} textareaRef={replyInputRef} />
+              <div className="run-composer">
+                <div className="composer-input-row">
+                  <label className="sr-only" htmlFor="feedback-input">Feedback to analyze</label>
+                  <AutoGrowTextarea id="feedback-input" value={feedback} onChange={setFeedback} placeholder="Paste more feedback for this round..." minRows={2} className="composer-textarea" textareaRef={feedbackInputRef} />
+                  <button type="button" onClick={analyze} disabled={!canAnalyze || isLoading} className="primary-button analyze-button pressable"><ArrowUp size={16} aria-hidden="true" /> Analyze</button>
+                </div>
+              </div>
+            </main>
+            <aside className="right-rail" aria-label="Brief and outputs">
+              <section className="rail-card brief-summary">
+                <div className="rail-card-header"><h2>Brief</h2><button type="button" className="text-button" onClick={() => setIsEditingBrief(true)}>Edit</button></div>
+                <dl><div><dt>Project</dt><dd>{brief.projectName}</dd></div><div><dt>Goal</dt><dd>{brief.goal}</dd></div><div><dt>Constraints</dt><dd>{brief.constraints?.trim() || "None set"}</dd></div></dl>
+                <p className="brief-count">{filledCount} of 6 fields filled</p>
+              </section>
+              <section className="rail-card">
+                <div className="rail-title"><HelpCircle size={16} aria-hidden="true" /><div><h2>Ask the client</h2><p>Questions from flagged tasks</p></div></div>
+                <div className="question-list">{displayQuestions.map((question, index) => <p key={index + "-" + question}>{question}</p>)}</div>
+                <button type="button" onClick={() => copyText("questions", displayQuestions.join("\n"))} className="full-button pressable"><Copy size={15} aria-hidden="true" /> Copy questions</button>
+              </section>
+              <section className="rail-card">
+                <div className="rail-title"><Clipboard size={16} aria-hidden="true" /><div><h2>Outputs</h2><p>Ready to take with you</p></div></div>
+                <div className="output-grid">
+                  <button type="button" onClick={() => resultForCopy && copyText("reply", resultForCopy.clientReply)} className="output-button pressable"><MessageSquareText size={15} aria-hidden="true" /> Client reply <span>Copy</span></button>
+                  <button type="button" onClick={() => resultForCopy && copyText("checklist", formatChecklistForClipboard(resultForCopy.checklist))} className="output-button pressable"><Check size={15} aria-hidden="true" /> Checklist <span>Copy</span></button>
+                  <button type="button" onClick={() => resultForCopy && copyText("scope", formatScopeNote(resultForCopy.checklist))} className="output-button pressable"><FileText size={15} aria-hidden="true" /> Scope note <span>Copy</span></button>
+                  <button type="button" onClick={() => setIsExportOpen(true)} className="output-button pressable"><Download size={15} aria-hidden="true" /> Export <span>Choose format</span></button>
+                </div>
+              </section>
+            </aside>
           </div>
-
-          <FilterTabs
-            activeFilter={activeFilter}
-            result={result}
-            onChange={(filter) => {
-              triggerHaptic(5);
-              setActiveFilter(filter);
-            }}
-          />
-
-          {error ? (
-            <div className="error-callout" role="alert">
-              <AlertTriangle size={17} aria-hidden="true" />
-              <div>
-                <p>{error}</p>
-                <button
-                  type="button"
-                  onClick={analyze}
-                  disabled={!canAnalyze || isLoading}
-                  className="error-retry-button pressable"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {isLoading ? (
-            <LoadingOutput />
-          ) : checklist.length ? (
-            <>
-              <div className="task-list">
-                {filteredChecklist.map((item, index) => (
-                  <TaskCard
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    expanded={openTaskId === item.id}
-                    completed={completedTaskIds.has(item.id)}
-                    onToggleDone={() => toggleTaskDone(item.id)}
-                    onOpen={() => {
-                      triggerHaptic(6);
-                      setOpenTaskId((current) => (current === item.id ? null : item.id));
-                    }}
-                  />
-                ))}
-              </div>
-              <ReplyDraft
-                value={clientReplyDraft}
-                onChange={setClientReplyDraft}
-                onCopy={() => copyText("reply", clientReplyDraft)}
-                copied={copied === "reply"}
-                textareaRef={replyInputRef}
-              />
-            </>
-          ) : (
-            <EmptyOutput />
-          )}
-
-          <div className="run-composer">
-            <div className="composer-input-row">
-              <label className="sr-only" htmlFor="feedback-input">
-                Feedback to analyze
-              </label>
-              <AutoGrowTextarea
-                id="feedback-input"
-                value={feedback}
-                onChange={setFeedback}
-                placeholder="Paste the next round of client feedback..."
-                minRows={2}
-                className="composer-textarea"
-                textareaRef={feedbackInputRef}
-              />
-              <button
-                type="button"
-                onClick={analyze}
-                disabled={!canAnalyze || isLoading}
-                className="primary-button analyze-button pressable"
-              >
-                {isLoading ? <Loader2 className="animate-spin" size={16} aria-hidden="true" /> : <ArrowUp size={16} aria-hidden="true" />}
-                Analyze
-              </button>
-            </div>
-          </div>
-        </main>
-
-        <aside
-          className="right-rail panel-enter"
-          style={{ "--enter-delay": "110ms" } as React.CSSProperties}
-        >
-          <section className="rail-card">
-            <div className="rail-card-header">
-              <h2>Progress</h2>
-              <span>{doneCount} of {checklist.length} done</span>
-            </div>
-            <div className="progress-track" aria-hidden="true">
-              <span style={{ width: `${progressPercent(doneCount, checklist.length)}%` }} />
-            </div>
-          </section>
-
-          <section className="rail-card">
-            <div className="rail-title">
-              <HelpCircle size={16} aria-hidden="true" />
-              <div>
-                <h2>Ask the client</h2>
-                <p>Questions from the flagged tasks</p>
-              </div>
-            </div>
-            <div className="question-list">
-              {displayQuestions.map((question, index) => (
-                <p key={`${index}-${question}`}>{question}</p>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => copyText("questions", displayQuestions.join("\n"))}
-              disabled={!result}
-              className="full-button pressable"
-            >
-              <Copy size={15} aria-hidden="true" />
-              Copy questions
-            </button>
-          </section>
-
-          <section className="rail-card">
-            <div className="rail-title">
-              <Clipboard size={16} aria-hidden="true" />
-              <div>
-                <h2>Outputs</h2>
-                <p>Copy ready-to-send pieces</p>
-              </div>
-            </div>
-            <div className="output-grid">
-              <button
-                type="button"
-                onClick={() => resultForCopy && copyText("reply", resultForCopy.clientReply)}
-                disabled={!resultForCopy}
-                className="output-button pressable"
-              >
-                <MessageSquareText size={15} aria-hidden="true" />
-                Client reply
-              </button>
-              <button
-                type="button"
-                onClick={() => resultForCopy && copyText("checklist", formatChecklistForClipboard(resultForCopy.checklist))}
-                disabled={!resultForCopy}
-                className="output-button pressable"
-              >
-                <Check size={15} aria-hidden="true" />
-                Checklist
-              </button>
-              <button
-                type="button"
-                onClick={() => resultForCopy && copyText("scope", formatScopeNote(resultForCopy.checklist))}
-                disabled={!resultForCopy}
-                className="output-button pressable"
-              >
-                <FileText size={15} aria-hidden="true" />
-                Scope note
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic(8);
-                  setIsExportOpen(true);
-                }}
-                disabled={!resultForCopy}
-                className="output-button pressable"
-              >
-                <Copy size={15} aria-hidden="true" />
-                Export
-              </button>
-            </div>
-          </section>
-        </aside>
+        )}
+        </>}
       </div>
-
       {isExportOpen && resultForCopy ? (
-        <div className="export-backdrop" role="presentation">
+        <div className="export-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setIsExportOpen(false);
+        }}>
           <div
             ref={exportDialogRef}
             className="export-dialog"
@@ -856,8 +786,9 @@ function TaskCard({
           className="open-button pressable"
           aria-expanded={expanded}
           aria-controls={detailsId}
+          aria-label={`${expanded ? "Collapse" : "Expand"} details for ${item.taskTitle}`}
         >
-          {expanded ? "Close" : "Open"}
+          <ChevronDown className="task-disclosure-icon" size={18} aria-hidden="true" />
         </button>
       </div>
 
@@ -1158,10 +1089,4 @@ function isAnalyzeResponse(
     typeof payload.source.model === "string" &&
     Boolean(payload.source.model.trim())
   );
-}
-
-function triggerHaptic(pattern: number | number[]) {
-  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-    navigator.vibrate(pattern);
-  }
 }
