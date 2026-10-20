@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { CSSProperties, RefObject } from "react";
 import {
   AlertTriangle,
   ArrowUp,
@@ -10,17 +10,23 @@ import {
   Clipboard,
   Copy,
   Download,
+  Ellipsis,
   FileText,
   FolderOpen,
   HelpCircle,
   Loader2,
   MessageSquareText,
   Plus,
+  Search,
   Sparkles,
   Wand2,
 } from "lucide-react";
 import clsx from "clsx";
+import { AccountStatus } from "@/components/account-status";
+import { BrieflyLogo } from "@/components/briefly-logo";
+import { analyzeFeedback } from "@/lib/analyze-feedback";
 import { formatChecklistForClipboard, formatResultForClipboard } from "@/lib/format";
+import { sampleRequest } from "@/lib/sample-data";
 import type { AnalysisResult, ChecklistItem, ProjectBrief } from "@/lib/types";
 
 type CopyKind = "all" | "checklist" | "reply" | "questions" | "scope";
@@ -34,6 +40,7 @@ type ProjectSession = {
   result: AnalysisResult | null;
   reply: string;
   completed: string[];
+  lastOpenedAt?: number;
 };
 
 const emptyBrief: ProjectBrief = {
@@ -100,6 +107,9 @@ export function BrieflyWorkspace() {
   const [showProjects, setShowProjects] = useState(false);
   const [editingProject, setEditingProject] = useState<string | "new" | null>(null);
   const [projectDraft, setProjectDraft] = useState<ProjectBrief>(emptyBrief);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [projectMenuId, setProjectMenuId] = useState<string | null>(null);
+  const [isSampleOutput, setIsSampleOutput] = useState(false);
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const exportDialogRef = useRef<HTMLDivElement>(null);
@@ -132,6 +142,12 @@ export function BrieflyWorkspace() {
       : ["No client questions were flagged in this analysis."]
     : emptyQuestions;
   const doneCount = completedTaskIds.size;
+  const visibleProjects = useMemo(() => {
+    const query = projectSearch.trim().toLocaleLowerCase();
+    if (!query) return projects;
+    return projects.filter((project) => [project.brief.projectName, project.brief.goal]
+      .some((value) => value.toLocaleLowerCase().includes(query)));
+  }, [projectSearch, projects]);
 
   useEffect(() => {
     if (!isExportOpen) {
@@ -167,6 +183,17 @@ export function BrieflyWorkspace() {
     };
   }, [isExportOpen]);
 
+  useEffect(() => {
+    if (!projectMenuId) return;
+
+    const closeProjectMenu = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProjectMenuId(null);
+    };
+
+    document.addEventListener("keydown", closeProjectMenu);
+    return () => document.removeEventListener("keydown", closeProjectMenu);
+  }, [projectMenuId]);
+
   async function analyze() {
     if (!canAnalyze || isLoading) {
       return;
@@ -175,6 +202,7 @@ export function BrieflyWorkspace() {
     setError("");
     setCopied(null);
     setResult(null);
+    setIsSampleOutput(false);
 
     try {
       const response = await fetch("/api/analyze", {
@@ -215,56 +243,72 @@ export function BrieflyWorkspace() {
     window.setTimeout(() => setCopied(null), 1500);
   }
 
-  function startNewRound() {
-    if (projectId && !showProjects) {
-      setProjects((current) => current.map((project) => project.id === projectId ? { ...project, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] } : project));
-    }
+  function createProject() {
+    if (isLoading) return;
+    setProjectDraft(emptyBrief);
+    setEditingProject("new");
+    setProjectMenuId(null);
+    setProjectSearch("");
+    setShowProjects(true);
+  }
+
+  function runSampleOutput() {
+    const sample = analyzeFeedback(sampleRequest);
     setProjectId(null);
-    setShowProjects(false);
-    setBrief(emptyBrief);
-    setFeedback("");
-    setResult(null);
-    setError("");
-    setClientReplyDraft("");
+    setBrief({ ...sampleRequest.brief });
+    setFeedback(sampleRequest.feedback);
+    setResult(sample);
+    setClientReplyDraft(sample.clientReply);
+    setCompletedTaskIds(new Set());
+    setOpenTaskId(sample.checklist[0]?.id ?? null);
     setActiveFilter("all");
-    setIsMoreContextOpen(false);
+    setError("");
     setIsEditingBrief(false);
+    setIsMoreContextOpen(true);
+    setIsSampleOutput(true);
+    setShowProjects(false);
   }
 
   function openProjects() {
     if (isLoading) return;
     if (projectId) {
       setProjects((current) => current.map((project) => project.id === projectId
-        ? { ...project, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] }
+        ? { ...project, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds], lastOpenedAt: Date.now() }
         : project));
-    } else if (brief.projectName.trim() || brief.goal.trim() || feedback.trim() || result) {
+    } else if (!isSampleOutput && (brief.projectName.trim() || brief.goal.trim() || feedback.trim() || result)) {
       const id = crypto.randomUUID();
       setProjectId(id);
-      setProjects((current) => [...current, { id, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds] }]);
+      setProjects((current) => [...current, { id, brief, feedback, result, reply: clientReplyDraft, completed: [...completedTaskIds], lastOpenedAt: Date.now() }]);
     }
     setEditingProject(null);
+    setProjectMenuId(null);
+    setProjectSearch("");
     setShowProjects(true);
   }
 
   function selectProject(project: ProjectSession) {
-    setProjectId(project.id);
-    setBrief(project.brief);
-    setFeedback(project.feedback);
-    setResult(project.result);
-    setClientReplyDraft(project.reply);
-    setCompletedTaskIds(new Set(project.completed));
+    const openedProject = { ...project, lastOpenedAt: Date.now() };
+    setProjects((current) => [...current.filter((item) => item.id !== project.id), openedProject]);
+    setProjectId(openedProject.id);
+    setBrief(openedProject.brief);
+    setFeedback(openedProject.feedback);
+    setResult(openedProject.result);
+    setClientReplyDraft(openedProject.reply);
+    setCompletedTaskIds(new Set(openedProject.completed));
     setOpenTaskId(null);
     setActiveFilter("all");
     setError("");
     setIsEditingBrief(false);
-    setIsMoreContextOpen(optionalBriefFields.some((field) => Boolean(project.brief[field.key]?.trim())));
+    setIsMoreContextOpen(optionalBriefFields.some((field) => Boolean(openedProject.brief[field.key]?.trim())));
+    setProjectMenuId(null);
+    setIsSampleOutput(false);
     setShowProjects(false);
   }
 
   function saveProject() {
     if (!projectDraft.projectName.trim() || !projectDraft.goal.trim()) return;
     if (editingProject === "new") {
-      const project = { id: crypto.randomUUID(), brief: projectDraft, feedback: "", result: null, reply: "", completed: [] };
+      const project = { id: crypto.randomUUID(), brief: projectDraft, feedback: "", result: null, reply: "", completed: [], lastOpenedAt: Date.now() };
       setProjects((current) => [...current, project]);
       selectProject(project);
     } else if (editingProject) {
@@ -272,6 +316,36 @@ export function BrieflyWorkspace() {
       if (projectId === editingProject) setBrief(projectDraft);
       setEditingProject(null);
     }
+  }
+
+  function duplicateProject(project: ProjectSession) {
+    const name = project.brief.projectName.trim() || "Untitled project";
+    const duplicate: ProjectSession = {
+      ...project,
+      id: crypto.randomUUID(),
+      brief: { ...project.brief, projectName: `${name} copy` },
+      completed: [...project.completed],
+      lastOpenedAt: Date.now(),
+    };
+    setProjects((current) => [...current, duplicate]);
+    setProjectMenuId(null);
+  }
+
+  function deleteProject(project: ProjectSession) {
+    const name = project.brief.projectName || "this project";
+    if (!window.confirm(`Delete ${name}? This removes its brief, feedback, and workplan from this browser session.`)) return;
+
+    setProjects((current) => current.filter((item) => item.id !== project.id));
+    if (projectId === project.id) {
+      setProjectId(null);
+      setBrief(emptyBrief);
+      setFeedback("");
+      setResult(null);
+      setClientReplyDraft("");
+      setCompletedTaskIds(new Set());
+      setOpenTaskId(null);
+    }
+    setProjectMenuId(null);
   }
 
   function exportOutput() {
@@ -315,49 +389,79 @@ export function BrieflyWorkspace() {
 
       <aside className="workspace-sidebar" aria-label="Workspace">
         <div className="sidebar-brand">
-          <div className="briefly-mark" aria-hidden="true">B</div>
+          <BrieflyLogo className="briefly-mark" />
           <span>Briefly</span>
         </div>
-        <button type="button" onClick={startNewRound} disabled={isLoading} className="primary-button sidebar-new pressable">
+        <button type="button" onClick={createProject} disabled={isLoading} className="primary-button sidebar-new pressable">
           <Plus size={16} aria-hidden="true" />
-          New round
+          New project
         </button>
         <div className="sidebar-section-label">Workspace</div>
-        <button type="button" onClick={openProjects} disabled={isLoading} className="projects-nav pressable" aria-current={showProjects ? "page" : undefined}><FolderOpen size={15} aria-hidden="true" /> Projects</button>
-        <div className="sidebar-project">
-          <div className="sidebar-project-icon"><Clipboard size={15} aria-hidden="true" /></div>
-          <span>{brief.projectName.trim() || "Untitled project"}</span>
-          <small>{result ? "Current" : "Draft"}</small>
-        </div>
+        <button type="button" onClick={openProjects} disabled={isLoading} className="projects-nav pressable" aria-current={showProjects ? "page" : undefined}><span className="projects-nav-count" aria-hidden="true">{projects.length}</span><FolderOpen size={15} aria-hidden="true" /> Projects</button>
+        <div className="sidebar-recents" aria-label="Recent projects"><div className="sidebar-section-label">Recents</div>{projects.length ? [...projects].slice(-4).reverse().map((project) => <button type="button" className="sidebar-recent-project pressable" key={project.id} onClick={() => selectProject(project)} aria-current={project.id === projectId ? "page" : undefined}>{project.brief.projectName || "Untitled project"}</button>) : <p>Nothing yet</p>}</div>
         <div className="sidebar-footer">
           <div className="sidebar-avatar" aria-hidden="true">B</div>
           <div><strong>Your workspace</strong><span>Feedback, made clear.</span></div>
         </div>
+        <AccountStatus />
       </aside>
 
       <div className="workspace-content">
         {showProjects ? (
           <main id="workspace" className="projects-screen">
-            <div className="projects-header">
-              <div><h1>Projects</h1><p>Keep your briefs and feedback together while you work.</p></div>
-              <button type="button" className="primary-button pressable" onClick={() => { setProjectDraft(emptyBrief); setEditingProject("new"); }}><Plus size={16} aria-hidden="true" /> New project</button>
-            </div>
-            <p className="projects-storage-note">Projects stay in this browser session and are cleared when you reload or close the page.</p>
+            <header className="projects-header">
+              <div>
+                <p className="projects-kicker">Your workspace</p>
+                <h1>{projects.length ? "Projects" : "Make room for the work"}</h1>
+                <p>{projects.length ? `${projects.length} ${projects.length === 1 ? "project" : "projects"} in this workspace.` : "Create a project once, then turn each round of feedback into a clear plan."}</p>
+              </div>
+            </header>
+            {projects.length ? <div className="projects-toolbar">
+              <label className="project-search"><Search size={16} aria-hidden="true" /><span className="sr-only">Search projects</span><input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search projects" /></label>
+              <span className="projects-count" aria-live="polite">{visibleProjects.length} shown</span>
+            </div> : null}
             {editingProject ? (
               <form className="project-editor" onSubmit={(event) => { event.preventDefault(); saveProject(); }}>
-                <div><h2>{editingProject === "new" ? "New project" : "Edit project"}</h2><p>Give your project the context Briefly needs.</p></div>
+                <div className="project-editor-heading"><div><h2>{editingProject === "new" ? "Create a project" : "Edit project"}</h2><p>Start with the context that makes feedback easier to interpret.</p></div><span>{editingProject === "new" ? "Step 1 of 1" : "Project details"}</span></div>
                 <div className="entry-form-grid">{briefFields.slice(0, 2).map((field) => <BriefField key={field.key} field={field} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, [field.key]: value }))} />)}</div>
                 <BriefField field={briefFields[2]} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, constraints: value }))} />
                 <div className="entry-form-grid">{optionalBriefFields.map((field) => <BriefField key={field.key} field={field} brief={projectDraft} onChange={(value) => setProjectDraft((current) => ({ ...current, [field.key]: value }))} />)}</div>
                 <div className="project-editor-actions"><button type="button" className="secondary-button pressable" onClick={() => setEditingProject(null)}>Cancel</button><button type="submit" className="primary-button pressable" disabled={!projectDraft.projectName.trim() || !projectDraft.goal.trim()}>{editingProject === "new" ? "Create project" : "Save changes"}</button></div>
               </form>
             ) : null}
-            {projects.length ? <div className="project-list" aria-label="Your projects">{projects.map((project) => <article className="project-item" key={project.id}>
-              <div className="project-item-icon"><FolderOpen size={18} aria-hidden="true" /></div>
-              <div className="project-item-content"><h2>{project.brief.projectName || "Untitled project"}</h2><p>{project.brief.goal || "No goal added yet"}</p><span>{project.result ? "Workplan ready" : "Draft"}{project.id === projectId ? " · Current project" : ""}</span></div>
-              <div className="project-item-actions"><button type="button" className="secondary-button pressable" onClick={() => { setProjectDraft({ ...project.brief }); setEditingProject(project.id); }}>Edit<span className="sr-only"> {project.brief.projectName}</span></button><button type="button" className="primary-button pressable" onClick={() => selectProject(project)}>Open<span className="sr-only"> {project.brief.projectName}</span></button></div>
-            </article>)}</div> : !editingProject ? <div className="projects-empty"><FolderOpen size={22} aria-hidden="true" /><h2>No projects yet</h2><p>Create a project to keep its brief and feedback together.</p><button type="button" className="secondary-button pressable" onClick={() => { setProjectDraft(emptyBrief); setEditingProject("new"); }}><Plus size={16} aria-hidden="true" /> Create a project</button></div> : null}
-            <button type="button" className="text-button projects-back" onClick={() => setShowProjects(false)}>Back to workspace</button>
+            {projects.length ? <>
+              {visibleProjects.length ? <div className="project-list" aria-label="Your projects">{visibleProjects.map((project, index) => {
+                const highPriority = project.result?.checklist.filter((item) => item.priority === "high").length ?? 0;
+                const questionsCount = project.result?.summary.needsClarification ?? 0;
+                const name = project.brief.projectName || "Untitled project";
+                return <article className="project-item" key={project.id} style={{ "--project-index": index } as CSSProperties}>
+                  <button type="button" className="project-item-main pressable" onClick={() => selectProject(project)} aria-label={`Open ${name}`}>
+                    <span className="project-item-icon" aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
+                    <span className="project-item-content"><strong>{name}</strong><span className="project-item-goal">{project.brief.goal || "No goal added yet"}</span><span className="project-item-meta"><em>{project.result ? "Workplan ready" : "Ready for feedback"}</em>{highPriority ? <em className="project-badge project-badge--high">{highPriority} high</em> : null}{questionsCount ? <em className="project-badge project-badge--ask">{questionsCount} need{questionsCount === 1 ? "s" : ""} answer</em> : null}</span><span className="project-opened">{formatProjectOpened(project.lastOpenedAt)}</span></span>
+                  </button>
+                  <div className="project-item-actions">
+                    <button type="button" className="project-menu-trigger pressable" aria-label={`More options for ${name}`} aria-expanded={projectMenuId === project.id} aria-controls={`project-menu-${project.id}`} onClick={() => setProjectMenuId((current) => current === project.id ? null : project.id)}><Ellipsis size={19} aria-hidden="true" /></button>
+                    {projectMenuId === project.id ? <div id={`project-menu-${project.id}`} className="project-menu" role="menu"><button type="button" role="menuitem" onClick={() => selectProject(project)}>Open project</button><button type="button" role="menuitem" onClick={() => { setProjectDraft({ ...project.brief }); setEditingProject(project.id); setProjectMenuId(null); }}>Edit brief</button><button type="button" role="menuitem" onClick={() => duplicateProject(project)}>Duplicate</button><span role="separator" /><button type="button" role="menuitem" className="project-menu-delete" onClick={() => deleteProject(project)}>Delete</button></div> : null}
+                  </div>
+                </article>;
+              })}</div> : <div className="projects-empty projects-empty--search"><Search size={20} aria-hidden="true" /><h2>No matching projects</h2><p>Try a different project name or clear your search.</p><button type="button" className="secondary-button pressable" onClick={() => setProjectSearch("")}>Clear search</button></div>}
+            </> : !editingProject ? <>
+              <section className="project-getting-started" aria-label="How Briefly works">
+                <article className="project-step-card project-step-card--brief">
+                  <div className="project-step-visual" aria-hidden="true"><div className="mini-project-menu"><span>+ New project</span><i>Projects</i></div></div>
+                  <div className="project-step-copy"><small>Step 1</small><h2>Create a project</h2><p>Add the brief, goal, and guardrails that shape every round.</p></div>
+                </article>
+                <article className="project-step-card project-step-card--feedback">
+                  <div className="project-step-visual" aria-hidden="true"><div className="mini-feedback"><span>make it pop?</span><span>+1, can we move it higher?</span><span>too corporate</span></div></div>
+                  <div className="project-step-copy"><small>Step 2</small><h2>Paste client feedback</h2><p>Drop in emails, chat threads, comments, or call notes.</p></div>
+                </article>
+                <article className="project-step-card project-step-card--plan">
+                  <div className="project-step-visual" aria-hidden="true"><div className="mini-plan"><span><i />Hero clutter <b>High</b></span><span><i />Sticky header <b>Needs answer</b></span></div></div>
+                  <div className="project-step-copy"><small>Step 3</small><h2>Review your plan</h2><p>Check the tasks, copy the questions, then shape the reply.</p></div>
+                </article>
+              </section>
+              <section className="projects-empty"><div className="projects-empty-symbol"><Plus size={20} aria-hidden="true" /></div><h2>Your first project starts here</h2><p>A project keeps its brief and feedback in one focused place.</p><div className="projects-empty-actions"><button type="button" className="primary-button pressable" onClick={createProject}><Plus size={15} aria-hidden="true" /> Create project</button><button type="button" className="secondary-button pressable" onClick={runSampleOutput}>Try an example</button></div><span>Example output is not saved to a project.</span></section>
+            </> : null}
           </main>
         ) : <>
         {result && !isEditingBrief ? (
@@ -434,6 +538,7 @@ export function BrieflyWorkspace() {
             <main id="workspace" className="results-main">
               <section className="summary-card">
                 <div className="summary-heading"><span><Sparkles size={15} aria-hidden="true" /> The short version</span><span>WORKPLAN</span></div>
+                {isSampleOutput ? <p className="sample-output-note">Sample output (not generated by AI)</p> : null}
                 <h1>{buildSummary(result, feedbackLines)}</h1>
                 <div className="summary-stats">
                   <div><span>Start with</span><strong>{result.summary.highPriority} high priority</strong></div>
@@ -1047,6 +1152,22 @@ function progressPercent(done: number, total: number) {
   }
 
   return Math.min(100, Math.round((done / total) * 100));
+}
+
+function formatProjectOpened(lastOpenedAt?: number) {
+  if (!lastOpenedAt) return "Opened earlier";
+
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - lastOpenedAt) / 60_000));
+  if (elapsedMinutes < 1) return "Opened just now";
+  if (elapsedMinutes < 60) return `Opened ${elapsedMinutes} min ago`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `Opened ${elapsedHours}h ago`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `Opened ${elapsedDays}d ago`;
+
+  return `Opened ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(lastOpenedAt))}`;
 }
 
 function priorityClass(priority: string) {
