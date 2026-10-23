@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { AccountStatus } from "@/components/account-status";
-import { BrieflyLogo } from "@/components/briefly-logo";
+import { ClienteseLogo } from "@/components/clientese-logo";
 import { analyzeFeedback } from "@/lib/analyze-feedback";
 import { formatChecklistForClipboard, formatResultForClipboard } from "@/lib/format";
 import { sampleRequest } from "@/lib/sample-data";
@@ -218,7 +218,7 @@ export function BrieflyWorkspace() {
       }
 
       if (!isAnalyzeResponse(payload)) {
-        throw new Error("Briefly received an invalid analysis response. Please try again.");
+        throw new Error("CLIENTESE received an invalid analysis response. Please try again.");
       }
 
       setClientReplyDraft(payload.analysis.clientReply);
@@ -230,7 +230,7 @@ export function BrieflyWorkspace() {
       setError(
         analysisError instanceof Error
           ? analysisError.message
-          : "Briefly could not analyze this feedback yet.",
+          : "CLIENTESE could not analyze this feedback yet.",
       );
     } finally {
       setIsLoading(false);
@@ -389,8 +389,8 @@ export function BrieflyWorkspace() {
 
       <aside className="workspace-sidebar" aria-label="Workspace">
         <div className="sidebar-brand">
-          <BrieflyLogo className="briefly-mark" />
-          <span>Briefly</span>
+          <ClienteseLogo className="clientese-mark" />
+          <span className="brand-wordmark">CLIENTESE</span>
         </div>
         <button type="button" onClick={createProject} disabled={isLoading} className="primary-button sidebar-new pressable">
           <Plus size={16} aria-hidden="true" />
@@ -400,7 +400,7 @@ export function BrieflyWorkspace() {
         <button type="button" onClick={openProjects} disabled={isLoading} className="projects-nav pressable" aria-current={showProjects ? "page" : undefined}><span className="projects-nav-count" aria-hidden="true">{projects.length}</span><FolderOpen size={15} aria-hidden="true" /> Projects</button>
         <div className="sidebar-recents" aria-label="Recent projects"><div className="sidebar-section-label">Recents</div>{projects.length ? [...projects].slice(-4).reverse().map((project) => <button type="button" className="sidebar-recent-project pressable" key={project.id} onClick={() => selectProject(project)} aria-current={project.id === projectId ? "page" : undefined}>{project.brief.projectName || "Untitled project"}</button>) : <p>Nothing yet</p>}</div>
         <div className="sidebar-footer">
-          <div className="sidebar-avatar" aria-hidden="true">B</div>
+          <div className="sidebar-avatar" aria-hidden="true">C</div>
           <div><strong>Your workspace</strong><span>Feedback, made clear.</span></div>
         </div>
         <AccountStatus />
@@ -446,7 +446,7 @@ export function BrieflyWorkspace() {
                 </article>;
               })}</div> : <div className="projects-empty projects-empty--search"><Search size={20} aria-hidden="true" /><h2>No matching projects</h2><p>Try a different project name or clear your search.</p><button type="button" className="secondary-button pressable" onClick={() => setProjectSearch("")}>Clear search</button></div>}
             </> : !editingProject ? <>
-              <section className="project-getting-started" aria-label="How Briefly works">
+              <section className="project-getting-started" aria-label="How CLIENTESE works">
                 <article className="project-step-card project-step-card--brief">
                   <div className="project-step-visual" aria-hidden="true"><div className="mini-project-menu"><span>+ New project</span><i>Projects</i></div></div>
                   <div className="project-step-copy"><small>Step 1</small><h2>Create a project</h2><p>Add the brief, goal, and guardrails that shape every round.</p></div>
@@ -483,7 +483,7 @@ export function BrieflyWorkspace() {
             <div className="entry-heading">
               <div className="entry-eyebrow"><Sparkles size={15} aria-hidden="true" /> YOUR WORKSPACE</div>
               <h1>{isEditingBrief ? "Edit your project brief" : "What did the client say?"}</h1>
-              <p>Paste the messy version. Briefly turns it into prioritized tasks, questions for the client, and scope notes.</p>
+              <p>Paste the messy version. CLIENTESE turns it into prioritized tasks, questions for the client, and scope notes.</p>
             </div>
 
             <div className="entry-card">
@@ -527,7 +527,7 @@ export function BrieflyWorkspace() {
               <div className="error-callout" role="alert"><AlertTriangle size={17} aria-hidden="true" /><div><p>{error}</p><button type="button" onClick={analyze} disabled={!canAnalyze || isLoading} className="error-retry-button pressable">Retry</button></div></div>
             ) : null}
             {isLoading ? <LoadingOutput /> : null}
-            <div className="entry-features" aria-label="What Briefly creates">
+            <div className="entry-features" aria-label="What CLIENTESE creates">
               <div className="feature-card"><span className="feature-tag feature-tag--tasks">TASKS</span><h2>Prioritized tasks</h2><p>Each one linked to the client’s feedback.</p></div>
               <div className="feature-card"><span className="feature-tag feature-tag--questions">ASK</span><h2>Questions for the client</h2><p>Open points, ready to discuss.</p></div>
               <div className="feature-card"><span className="feature-tag feature-tag--scope">SCOPE</span><h2>Scope notes</h2><p>Requests to check against your brief.</p></div>
@@ -1101,7 +1101,7 @@ function formatExport(
 }
 
 function formatMarkdownExport(result: AnalysisResult, content: ExportContent) {
-  const sections: string[] = ["# Briefly export"];
+  const sections: string[] = ["# CLIENTESE export"];
 
   if (content === "checklist" || content === "both") {
     const taskList = result.checklist

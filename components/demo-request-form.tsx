@@ -18,16 +18,16 @@ export function DemoRequestForm({ recipient }: { recipient: string }) {
     const team = String(data.get("team") ?? "").trim();
     const interest = String(data.get("interest") ?? "").trim();
     const body = [
-      "Hello Briefly team,",
+      "Hello CLIENTESE team,",
       "",
-      "I’d like to request a demo of Briefly.",
+      "I’d like to request a demo of CLIENTESE.",
       "",
       `Name: ${name}`,
       `Email: ${email}`,
       ...(team ? [`Studio or company: ${team}`] : []),
       ...(interest ? [`What I’d like to see: ${interest}`] : []),
     ].join("\n");
-    window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent("Briefly demo request")}&body=${encodeURIComponent(body)}`;
+    window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent("CLIENTESE demo request")}&body=${encodeURIComponent(body)}`;
     setDraftOpened(true);
   }
 

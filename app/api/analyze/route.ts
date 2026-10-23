@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       { analysis: analysis.result, source: analysis.source },
       {
         headers: {
-          "X-Briefly-Analysis-Source": analysis.source.provider,
+          "X-Clientese-Analysis-Source": analysis.source.provider,
         },
       },
     );
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { error: "Briefly could not analyze this feedback yet. Please try again." },
+      { error: "CLIENTESE could not analyze this feedback yet. Please try again." },
       { status: 500 },
     );
   }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Check, ChevronDown, CircleHelp, FileText, ListChecks, MessageSquareText, ShieldCheck, Sparkles, ClipboardCheck, Send, Quote } from "lucide-react";
-import { BrieflyLogo } from "@/components/briefly-logo";
+import { ClienteseLogo } from "@/components/clientese-logo";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -8,7 +8,7 @@ export default function Home() {
   return (
     <div className="site-page landing-page">
       <header className="site-header site-wrap">
-        <Link className="site-brand" href="/" aria-label="Briefly home"><BrieflyLogo className="site-logo" /> <span>Briefly</span></Link>
+        <Link className="site-brand" href="/" aria-label="CLIENTESE home"><ClienteseLogo className="site-logo" /> <span className="brand-wordmark">CLIENTESE</span></Link>
         <nav className="site-nav" aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
           <a href="#features">Features</a>
@@ -29,19 +29,19 @@ export default function Home() {
           <div className="hero-copy">
           <p className="hero-audience">For freelance designers and small studios</p>
           <h1 id="landing-title">Turn messy client feedback into <mark>a clear plan.</mark></h1>
-          <p>Paste emails, call notes, or comment threads. Briefly turns them into prioritized tasks, questions to ask, and scope notes tied to the client’s own words.</p>
+          <p>Paste emails, call notes, or comment threads. CLIENTESE turns them into prioritized tasks, questions to ask, and scope notes tied to the client’s own words.</p>
             <div className="hero-actions">
               <Link className={cn(buttonVariants({ size: "lg" }), "rounded-full")} href="/sign-up">Start free <ArrowRight data-icon="inline-end" /></Link>
               <Link className={cn(buttonVariants({ variant: "outline", size: "lg" }), "rounded-full")} href="/request-demo">Request a demo</Link>
             </div>
           <p className="hero-footnote">No client messages are sent automatically.</p>
           </div>
-          <div className="hero-preview" id="product" aria-label="A Briefly workplan generated from client feedback">
+          <div className="hero-preview" id="product" aria-label="A CLIENTESE workplan generated from client feedback">
             <div className="preview-window">
-              <div className="preview-top"><span className="preview-dots"><i /><i /><i /></span><span>Briefly workspace</span><span className="preview-status">Workplan ready</span></div>
+              <div className="preview-top"><span className="preview-dots"><i /><i /><i /></span><span>CLIENTESE workspace</span><span className="preview-status">Workplan ready</span></div>
               <div className="preview-app">
                 <aside className="preview-sidebar">
-                  <div className="preview-brand"><BrieflyLogo /> <strong>Briefly</strong></div>
+                  <div className="preview-brand"><ClienteseLogo /> <strong className="brand-wordmark">CLIENTESE</strong></div>
                   <span className="preview-faux-button">+ New round</span>
                   <small>Projects</small>
                   <span className="is-current">Bloom <i>2 rounds</i></span>
@@ -67,7 +67,7 @@ export default function Home() {
         </section>
         <section className="landing-proof site-wrap"><p>Bring the feedback from wherever it landed.</p><div><span>Email threads</span><i /> <span>Slack messages</span><i /> <span>Call notes</span><i /> <span>Docs and comments</span></div></section>
         <section className="landing-features site-wrap" id="features" aria-labelledby="features-title">
-          <div className="landing-section-heading"><h2 id="features-title">Built to stop the guessing.</h2><p>Briefly keeps the important context close, so you can decide what needs work, what needs an answer, and what may change the brief.</p></div>
+          <div className="landing-section-heading"><h2 id="features-title">Built to stop the guessing.</h2><p>CLIENTESE keeps the important context close, so you can decide what needs work, what needs an answer, and what may change the brief.</p></div>
           <div className="feature-grid">
             <article className="feature-card">
               <div className="feature-art feature-art-tasks" aria-hidden="true"><div className="art-window art-task-window"><div className="art-window-label"><ListChecks /> Workplan <span>3 tasks</span></div><div className="art-task"><i /><span>Improve hero clarity<small>High priority</small></span><Check /></div><div className="art-task"><i /><span>Refine product cards<small>Medium priority</small></span></div><div className="art-task"><i /><span>Make the CTA stand out<small>Medium priority</small></span></div></div><span className="art-floating art-priority">High priority</span></div>
@@ -95,8 +95,8 @@ export default function Home() {
             <article className="step-card"><div className="step-art step-art-review" aria-hidden="true"><div className="step-workplan"><div className="art-window-label"><ListChecks /> Your workplan <span>3 tasks</span></div><div><i /><span>Give the hero more breathing room</span><b>High</b></div><div><i /><span>Make the CTA more visible</span><b>High</b></div><div><i /><span>Refine the overall look</span><b>Medium</b></div></div></div><div className="step-copy"><span>03</span><h3>Review the workplan</h3><p>Review the tasks, clarify open questions, and edit your client reply.</p></div></article>
           </div>
         </section>
-        <section className="landing-principles site-wrap" aria-label="Briefly principles">
-          <article><ClipboardCheck aria-hidden="true" /><h3>You stay in control</h3><p>Review and edit every task before anything leaves Briefly.</p></article>
+        <section className="landing-principles site-wrap" aria-label="CLIENTESE principles">
+          <article><ClipboardCheck aria-hidden="true" /><h3>You stay in control</h3><p>Review and edit every task before anything leaves CLIENTESE.</p></article>
           <article><Quote aria-hidden="true" /><h3>A plain data note</h3><p>Your pasted feedback and brief are sent to the analysis provider to generate the plan.</p></article>
           <article><ShieldCheck aria-hidden="true" /><h3>Privacy by design</h3><p>We make the product’s data handling clear before you begin.</p></article>
         </section>
@@ -105,13 +105,13 @@ export default function Home() {
           <div className="faq-list">
             <details><summary>What can I paste in?<ChevronDown /></summary><p>Emails, chat threads, call notes, comments, and loose paragraphs. You do not need to clean them up first.</p></details>
             <details><summary>Does it make things up?<ChevronDown /></summary><p>Each task keeps a related feedback quote so you can check where it came from. You make the final call.</p></details>
-            <details><summary>What does the analysis use?<ChevronDown /></summary><p>Briefly uses Cohere to analyze the brief and feedback, then returns a workplan for you to review.</p></details>
+            <details><summary>What does the analysis use?<ChevronDown /></summary><p>CLIENTESE uses Cohere to analyze the brief and feedback, then returns a workplan for you to review.</p></details>
             <details><summary>Can I try it with a real project?<ChevronDown /></summary><p>Yes. Start free to create an account and begin a project, or request a demo if you would like a guided walkthrough.</p></details>
           </div>
         </section>
-        <section className="landing-bottom site-wrap"><div><BrieflyLogo /><div><h2>Spend less time decoding feedback.</h2><p>Paste the next round and see the plan in seconds.</p></div></div><Link className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "rounded-full")} href="/sign-up">Start free <ArrowRight data-icon="inline-end" /></Link></section>
+        <section className="landing-bottom site-wrap"><div><ClienteseLogo /><div><h2>Spend less time decoding feedback.</h2><p>Paste the next round and see the plan in seconds.</p></div></div><Link className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "rounded-full")} href="/sign-up">Start free <ArrowRight data-icon="inline-end" /></Link></section>
       </main>
-      <footer className="site-footer site-wrap"><Link className="site-brand" href="/"><BrieflyLogo className="site-logo" /> <span>Briefly</span></Link><span>Made for the work behind the work.</span><div><Link href="/sign-in">Sign in</Link><Link href="/workspace">Workspace</Link></div></footer>
+      <footer className="site-footer site-wrap"><Link className="site-brand" href="/" aria-label="CLIENTESE home"><ClienteseLogo className="site-logo" /> <span className="brand-wordmark">CLIENTESE</span></Link><span>Made for the work behind the work.</span><div><Link href="/sign-in">Sign in</Link><Link href="/workspace">Workspace</Link></div></footer>
     </div>
   );
 }
